@@ -1,915 +1,445 @@
 import { useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  FlatList,
-  StyleSheet,
-  Alert,
-  ScrollView,
-} from 'react-native';
-
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SQLite from 'expo-sqlite';
 
-type Producto = {
-  id: string;
-  nombre: string;
-  cantidad: string;
-};
+type Producto = { id: string; nombre: string; cantidad: string };
+type ProductoSQLite = { id: number; nombre: string; cantidad: number };
 
-// Dirección de nuestro servidor Express
-const API_URL = 'http://localhost:3000/productos';
+const STORAGE_KEY = 'productos';
+const dbPromise = SQLite.openDatabaseAsync('productos.db');
 
 export default function Index() {
+  // ASYNCSTORAGE
+  const [productos, setProductos] = useState<Producto[]>([]);
+  const [nombre, setNombre] = useState('');
+  const [cantidad, setCantidad] = useState('');
+  const [editandoId, setEditandoId] = useState<string | null>(null);
 
-  // ========================================
-  // ESTADOS ASYNCSTORAGE
-  // ========================================
-
-  const [nombreAsync, setNombreAsync] = useState('');
-  const [cantidadAsync, setCantidadAsync] = useState('');
-
-  const [productosAsync, setProductosAsync] =
-    useState<Producto[]>([]);
-
-  const [editandoAsync, setEditandoAsync] =
-    useState<string | null>(null);
-
-
-  // ========================================
-  // ESTADOS MYSQL
-  // ========================================
-
-  const [nombreSQL, setNombreSQL] = useState('');
-  const [cantidadSQL, setCantidadSQL] = useState('');
-
-  const [productosSQL, setProductosSQL] =
-    useState<Producto[]>([]);
-
-  const [editandoSQL, setEditandoSQL] =
-    useState<string | null>(null);
-
-
-  // ========================================
-  // CARGAR AL INICIAR
-  // ========================================
+  // SQLITE
+  const [productosSQLite, setProductosSQLite] = useState<ProductoSQLite[]>([]);
+  const [nombreSQLite, setNombreSQLite] = useState('');
+  const [cantidadSQLite, setCantidadSQLite] = useState('');
+  const [editandoSQLiteId, setEditandoSQLiteId] = useState<number | null>(null);
 
   useEffect(() => {
-
-    cargarProductosAsync();
-
-    cargarProductosSQL();
-
+    cargarProductos();
+    inicializarSQLite();
   }, []);
 
+  // ==================== ASYNCSTORAGE ====================
 
-  // ========================================
-  // CRUD ASYNCSTORAGE
-  // ========================================
-
-  // READ
-  const cargarProductosAsync = async () => {
-
+  const cargarProductos = async () => {
     try {
-
-      const datos =
-        await AsyncStorage.getItem('productos');
-
-      if (datos !== null) {
-
-        setProductosAsync(
-          JSON.parse(datos)
-        );
-
-      }
-
+      const datos = await AsyncStorage.getItem(STORAGE_KEY);
+      if (datos) setProductos(JSON.parse(datos));
     } catch (error) {
-
-      console.error(
-        'Error al cargar AsyncStorage:',
-        error
-      );
-
+      console.log('Error al cargar productos:', error);
     }
   };
 
+  const guardarProductos = async (lista: Producto[]) => {
+    try {
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(lista));
+      setProductos(lista);
+    } catch (error) {
+      console.log('Error al guardar productos:', error);
+    }
+  };
 
-  // CREATE / UPDATE
-  const guardarProductoAsync = async () => {
-
-    if (
-      !nombreAsync.trim() ||
-      !cantidadAsync.trim()
-    ) {
-
-      Alert.alert(
-        'Error',
-        'Completa todos los campos'
-      );
-
+  const agregarProducto = async () => {
+    if (!nombre.trim() || !cantidad.trim()) {
+      Alert.alert('Error', 'Completa todos los campos');
       return;
     }
 
+    const nuevo: Producto = {
+      id: Date.now().toString(),
+      nombre: nombre.trim(),
+      cantidad: cantidad.trim()
+    };
 
-    let nuevosProductos: Producto[];
-
-
-    // UPDATE
-    if (editandoAsync !== null) {
-
-      nuevosProductos =
-        productosAsync.map(
-          (producto) =>
-
-            producto.id === editandoAsync
-              ? {
-                  ...producto,
-                  nombre:
-                    nombreAsync.trim(),
-                  cantidad:
-                    cantidadAsync.trim(),
-                }
-              : producto
-        );
-
-    }
-
-    // CREATE
-    else {
-
-      const nuevoProducto: Producto = {
-
-        id: Date.now().toString(),
-
-        nombre:
-          nombreAsync.trim(),
-
-        cantidad:
-          cantidadAsync.trim(),
-
-      };
-
-
-      nuevosProductos = [
-
-        ...productosAsync,
-
-        nuevoProducto,
-
-      ];
-
-    }
-
-
-    try {
-
-      await AsyncStorage.setItem(
-
-        'productos',
-
-        JSON.stringify(
-          nuevosProductos
-        )
-
-      );
-
-
-      setProductosAsync(
-        nuevosProductos
-      );
-
-
-      setNombreAsync('');
-
-      setCantidadAsync('');
-
-      setEditandoAsync(null);
-
-    } catch (error) {
-
-      console.error(
-        'Error al guardar AsyncStorage:',
-        error
-      );
-
-    }
-
+    await guardarProductos([...productos, nuevo]);
+    setNombre('');
+    setCantidad('');
   };
 
-
-  // UPDATE - preparar
-  const editarProductoAsync = (
-    producto: Producto
-  ) => {
-
-    setNombreAsync(
-      producto.nombre
-    );
-
-    setCantidadAsync(
-      producto.cantidad
-    );
-
-    setEditandoAsync(
-      producto.id
-    );
-
+  const iniciarEdicion = (producto: Producto) => {
+    setEditandoId(producto.id);
+    setNombre(producto.nombre);
+    setCantidad(producto.cantidad);
   };
 
+  const actualizarProducto = async () => {
+    if (!editandoId) return;
 
-  // DELETE
-  const eliminarProductoAsync = async (
-    id: string
-  ) => {
-
-    const nuevosProductos =
-      productosAsync.filter(
-        (producto) =>
-          producto.id !== id
-      );
-
-
-    try {
-
-      await AsyncStorage.setItem(
-
-        'productos',
-
-        JSON.stringify(
-          nuevosProductos
-        )
-
-      );
-
-
-      setProductosAsync(
-        nuevosProductos
-      );
-
-    } catch (error) {
-
-      console.error(
-        'Error al eliminar AsyncStorage:',
-        error
-      );
-
-    }
-
-  };
-
-
-  // ========================================
-  // CRUD MYSQL
-  // ========================================
-
-  // READ
-  const cargarProductosSQL = async () => {
-
-    try {
-
-      const respuesta =
-        await fetch(API_URL);
-
-
-      if (!respuesta.ok) {
-
-        throw new Error(
-          'Error al obtener productos'
-        );
-
-      }
-
-
-      const datos =
-        await respuesta.json();
-
-
-      const productosConvertidos =
-        datos.map(
-          (producto: any) => ({
-
-            id:
-              producto.id.toString(),
-
-            nombre:
-              producto.nombre,
-
-            cantidad:
-              producto.cantidad.toString(),
-
-          })
-        );
-
-
-      setProductosSQL(
-        productosConvertidos
-      );
-
-
-    } catch (error) {
-
-      console.error(
-        'Error SQL:',
-        error
-      );
-
-    }
-
-  };
-
-
-  // CREATE / UPDATE
-  const guardarProductoSQL = async () => {
-
-    if (
-      !nombreSQL.trim() ||
-      !cantidadSQL.trim()
-    ) {
-
-      Alert.alert(
-        'Error',
-        'Completa todos los campos'
-      );
-
+    if (!nombre.trim() || !cantidad.trim()) {
+      Alert.alert('Error', 'Completa todos los campos');
       return;
     }
 
+    const lista = productos.map(producto =>
+      producto.id === editandoId
+        ? { ...producto, nombre: nombre.trim(), cantidad: cantidad.trim() }
+        : producto
+    );
 
+    await guardarProductos(lista);
+    setNombre('');
+    setCantidad('');
+    setEditandoId(null);
+  };
+
+  const eliminarProducto = async (id: string) => {
+    await guardarProductos(productos.filter(producto => producto.id !== id));
+  };
+
+  // ==================== SQLITE ====================
+
+  const inicializarSQLite = async () => {
     try {
+      const db = await dbPromise;
 
-      // UPDATE
-      if (editandoSQL !== null) {
-
-        const respuesta =
-          await fetch(
-            `${API_URL}/${editandoSQL}`,
-            {
-
-              method: 'PUT',
-
-              headers: {
-                'Content-Type':
-                  'application/json',
-              },
-
-              body: JSON.stringify({
-
-                nombre:
-                  nombreSQL.trim(),
-
-                cantidad:
-                  Number(cantidadSQL),
-
-              }),
-
-            }
-          );
-
-
-        if (!respuesta.ok) {
-
-          throw new Error(
-            'No se pudo actualizar'
-          );
-
-        }
-
-
-        Alert.alert(
-          'Éxito',
-          'Producto actualizado en MySQL'
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS productos (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          nombre TEXT NOT NULL,
+          cantidad INTEGER NOT NULL
         );
+      `);
 
-      }
-
-      // CREATE
-      else {
-
-        const respuesta =
-          await fetch(
-            API_URL,
-            {
-
-              method: 'POST',
-
-              headers: {
-                'Content-Type':
-                  'application/json',
-              },
-
-              body: JSON.stringify({
-
-                nombre:
-                  nombreSQL.trim(),
-
-                cantidad:
-                  Number(cantidadSQL),
-
-              }),
-
-            }
-          );
-
-
-        if (!respuesta.ok) {
-
-          throw new Error(
-            'No se pudo crear'
-          );
-
-        }
-
-
-        Alert.alert(
-          'Éxito',
-          'Producto guardado en MySQL'
-        );
-
-      }
-
-
-      setNombreSQL('');
-
-      setCantidadSQL('');
-
-      setEditandoSQL(null);
-
-
-      // Volver a consultar MySQL
-      cargarProductosSQL();
-
-
+      await cargarProductosSQLite();
     } catch (error) {
+      console.log('Error inicializando SQLite:', error);
+    }
+  };
 
-      console.error(
-        'Error SQL:',
-        error
+  const cargarProductosSQLite = async () => {
+    try {
+      const db = await dbPromise;
+
+      const resultados = await db.getAllAsync<ProductoSQLite>(
+        'SELECT * FROM productos ORDER BY id DESC'
       );
 
+      setProductosSQLite(resultados);
+    } catch (error) {
+      console.log('Error cargando SQLite:', error);
+    }
+  };
 
-      Alert.alert(
-
-        'Error',
-
-        'No se pudo conectar con MySQL'
-
-      );
-
+  const agregarProductoSQLite = async () => {
+    if (!nombreSQLite.trim() || !cantidadSQLite.trim()) {
+      Alert.alert('Error', 'Completa todos los campos');
+      return;
     }
 
-  };
+    const cantidadNumero = Number(cantidadSQLite);
 
-
-  // UPDATE - preparar
-  const editarProductoSQL = (
-    producto: Producto
-  ) => {
-
-    setNombreSQL(
-      producto.nombre
-    );
-
-    setCantidadSQL(
-      producto.cantidad
-    );
-
-    setEditandoSQL(
-      producto.id
-    );
-
-  };
-
-
-  // DELETE
-  const eliminarProductoSQL = async (
-    id: string
-  ) => {
-
-    try {
-
-      const respuesta =
-        await fetch(
-          `${API_URL}/${id}`,
-          {
-            method: 'DELETE',
-          }
-        );
-
-
-      if (!respuesta.ok) {
-
-        throw new Error(
-          'No se pudo eliminar'
-        );
-
-      }
-
-
-      Alert.alert(
-        'Éxito',
-        'Producto eliminado de MySQL'
-      );
-
-
-      cargarProductosSQL();
-
-
-    } catch (error) {
-
-      console.error(
-        'Error SQL:',
-        error
-      );
-
-
-      Alert.alert(
-        'Error',
-        'No se pudo eliminar'
-      );
-
+    if (isNaN(cantidadNumero)) {
+      Alert.alert('Error', 'La cantidad debe ser un número');
+      return;
     }
 
+    try {
+      const db = await dbPromise;
+
+      await db.runAsync(
+        'INSERT INTO productos (nombre, cantidad) VALUES (?, ?)',
+        nombreSQLite.trim(),
+        cantidadNumero
+      );
+
+      setNombreSQLite('');
+      setCantidadSQLite('');
+      await cargarProductosSQLite();
+    } catch (error) {
+      console.log('Error agregando producto SQLite:', error);
+    }
   };
 
+  const iniciarEdicionSQLite = (producto: ProductoSQLite) => {
+    setEditandoSQLiteId(producto.id);
+    setNombreSQLite(producto.nombre);
+    setCantidadSQLite(producto.cantidad.toString());
+  };
 
-  // ========================================
-  // INTERFAZ
-  // ========================================
+  const actualizarProductoSQLite = async () => {
+    if (editandoSQLiteId === null) return;
+
+    if (!nombreSQLite.trim() || !cantidadSQLite.trim()) {
+      Alert.alert('Error', 'Completa todos los campos');
+      return;
+    }
+
+    const cantidadNumero = Number(cantidadSQLite);
+
+    if (isNaN(cantidadNumero)) {
+      Alert.alert('Error', 'La cantidad debe ser un número');
+      return;
+    }
+
+    try {
+      const db = await dbPromise;
+
+      await db.runAsync(
+        'UPDATE productos SET nombre = ?, cantidad = ? WHERE id = ?',
+        nombreSQLite.trim(),
+        cantidadNumero,
+        editandoSQLiteId
+      );
+
+      setNombreSQLite('');
+      setCantidadSQLite('');
+      setEditandoSQLiteId(null);
+      await cargarProductosSQLite();
+    } catch (error) {
+      console.log('Error actualizando SQLite:', error);
+    }
+  };
+
+  const eliminarProductoSQLite = async (id: number) => {
+    try {
+      const db = await dbPromise;
+
+      await db.runAsync(
+        'DELETE FROM productos WHERE id = ?',
+        id
+      );
+
+      await cargarProductosSQLite();
+    } catch (error) {
+      console.log('Error eliminando SQLite:', error);
+    }
+  };
+
+  // ==================== INTERFAZ ====================
 
   return (
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <Text style={styles.title}>CRUD Productos</Text>
 
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={
-        styles.content
-      }
-    >
-
-      <Text style={styles.title}>
-        CRUD de Productos
-      </Text>
-
-
-      {/* ================================= */}
       {/* ASYNCSTORAGE */}
-      {/* ================================= */}
-
       <View style={styles.section}>
-
-        <Text style={styles.sectionTitle}>
-          💾 AsyncStorage
-        </Text>
-
-
-        <Text style={styles.description}>
-          Almacenamiento local
-        </Text>
-
+        <Text style={styles.sectionTitle}>💾 CRUD con AsyncStorage</Text>
 
         <TextInput
           style={styles.input}
           placeholder="Nombre del producto"
-          value={nombreAsync}
-          onChangeText={
-            setNombreAsync
-          }
+          value={nombre}
+          onChangeText={setNombre}
         />
-
 
         <TextInput
           style={styles.input}
           placeholder="Cantidad"
-          value={cantidadAsync}
-          onChangeText={
-            setCantidadAsync
-          }
+          value={cantidad}
+          onChangeText={setCantidad}
           keyboardType="numeric"
         />
 
-
         <TouchableOpacity
           style={styles.button}
-          onPress={
-            guardarProductoAsync
-          }
+          onPress={editandoId ? actualizarProducto : agregarProducto}
         >
-
           <Text style={styles.buttonText}>
-
-            {editandoAsync !== null
-              ? 'Actualizar'
-              : 'Guardar'}
-
+            {editandoId ? 'Actualizar' : 'Agregar'}
           </Text>
-
         </TouchableOpacity>
 
-
-        <Text style={styles.subtitle}>
-          Productos locales
-        </Text>
-
-
-        <FlatList
-          data={productosAsync}
-          scrollEnabled={false}
-          keyExtractor={(item) =>
-            item.id
-          }
-
-          renderItem={({ item }) => (
-
-            <View style={styles.product}>
-
-              <View>
-
-                <Text
-                  style={
-                    styles.productName
-                  }
-                >
-                  {item.nombre}
-                </Text>
-
-                <Text>
-                  Cantidad: {item.cantidad}
-                </Text>
-
-              </View>
-
-
-              <View style={styles.actions}>
-
-                <TouchableOpacity
-                  onPress={() =>
-                    editarProductoAsync(
-                      item
-                    )
-                  }
-                >
-
-                  <Text style={styles.edit}>
-                    Editar
-                  </Text>
-
-                </TouchableOpacity>
-
-
-                <TouchableOpacity
-                  onPress={() =>
-                    eliminarProductoAsync(
-                      item.id
-                    )
-                  }
-                >
-
-                  <Text style={styles.delete}>
-                    Eliminar
-                  </Text>
-
-                </TouchableOpacity>
-
-              </View>
-
+        {productos.map(producto => (
+          <View key={producto.id} style={styles.card}>
+            <View style={styles.cardInfo}>
+              <Text style={styles.productName}>{producto.nombre}</Text>
+              <Text style={styles.productQuantity}>
+                Cantidad: {producto.cantidad}
+              </Text>
             </View>
 
-          )}
+            <View style={styles.actions}>
+              <TouchableOpacity
+                style={styles.editButton}
+                onPress={() => iniciarEdicion(producto)}
+              >
+                <Text style={styles.buttonText}>Editar</Text>
+              </TouchableOpacity>
 
-        />
-
+              <TouchableOpacity
+                style={styles.deleteButton}
+                onPress={() => eliminarProducto(producto.id)}
+              >
+                <Text style={styles.buttonText}>Eliminar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ))}
       </View>
 
-
-      {/* ================================= */}
-      {/* MYSQL */}
-      {/* ================================= */}
-
+      {/* SQLITE */}
       <View style={styles.section}>
-
-        <Text style={styles.sectionTitle}>
-          🗄️ MySQL
-        </Text>
-
-
-        <Text style={styles.description}>
-          Almacenamiento mediante Express
-        </Text>
-
+        <Text style={styles.sectionTitle}>🗄️ CRUD con SQLite</Text>
 
         <TextInput
           style={styles.input}
           placeholder="Nombre del producto"
-          value={nombreSQL}
-          onChangeText={
-            setNombreSQL
-          }
+          value={nombreSQLite}
+          onChangeText={setNombreSQLite}
         />
-
 
         <TextInput
           style={styles.input}
           placeholder="Cantidad"
-          value={cantidadSQL}
-          onChangeText={
-            setCantidadSQL
-          }
+          value={cantidadSQLite}
+          onChangeText={setCantidadSQLite}
           keyboardType="numeric"
         />
-
 
         <TouchableOpacity
           style={styles.button}
           onPress={
-            guardarProductoSQL
+            editandoSQLiteId !== null
+              ? actualizarProductoSQLite
+              : agregarProductoSQLite
           }
         >
-
           <Text style={styles.buttonText}>
-
-            {editandoSQL !== null
-              ? 'Actualizar SQL'
-              : 'Guardar en SQL'}
-
+            {editandoSQLiteId !== null ? 'Actualizar' : 'Agregar'}
           </Text>
-
         </TouchableOpacity>
 
-
-        <Text style={styles.subtitle}>
-          Productos de MySQL
-        </Text>
-
-
-        <FlatList
-          data={productosSQL}
-          scrollEnabled={false}
-          keyExtractor={(item) =>
-            item.id
-          }
-
-          renderItem={({ item }) => (
-
-            <View style={styles.product}>
-
-              <View>
-
-                <Text
-                  style={
-                    styles.productName
-                  }
-                >
-                  {item.nombre}
-                </Text>
-
-                <Text>
-                  Cantidad: {item.cantidad}
-                </Text>
-
-              </View>
-
-
-              <View style={styles.actions}>
-
-                <TouchableOpacity
-                  onPress={() =>
-                    editarProductoSQL(
-                      item
-                    )
-                  }
-                >
-
-                  <Text style={styles.edit}>
-                    Editar
-                  </Text>
-
-                </TouchableOpacity>
-
-
-                <TouchableOpacity
-                  onPress={() =>
-                    eliminarProductoSQL(
-                      item.id
-                    )
-                  }
-                >
-
-                  <Text style={styles.delete}>
-                    Eliminar
-                  </Text>
-
-                </TouchableOpacity>
-
-              </View>
-
+        {productosSQLite.map(producto => (
+          <View key={producto.id} style={styles.card}>
+            <View style={styles.cardInfo}>
+              <Text style={styles.productName}>{producto.nombre}</Text>
+              <Text style={styles.productQuantity}>
+                Cantidad: {producto.cantidad}
+              </Text>
             </View>
 
-          )}
+            <View style={styles.actions}>
+              <TouchableOpacity
+                style={styles.editButton}
+                onPress={() => iniciarEdicionSQLite(producto)}
+              >
+                <Text style={styles.buttonText}>Editar</Text>
+              </TouchableOpacity>
 
-        />
-
+              <TouchableOpacity
+                style={styles.deleteButton}
+                onPress={() => eliminarProductoSQLite(producto.id)}
+              >
+                <Text style={styles.buttonText}>Eliminar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ))}
       </View>
-
     </ScrollView>
-
   );
-
 }
 
-
-// ========================================
+// ======================================================
 // ESTILOS
-// ========================================
+// ======================================================
 
 const styles = StyleSheet.create({
-
   container: {
     flex: 1,
+    backgroundColor: '#f2f2f2',
   },
 
   content: {
     padding: 20,
-    paddingTop: 60,
+    paddingTop: 50,
+    paddingBottom: 50,
   },
 
   title: {
-    fontSize: 28,
+    fontSize: 30,
     fontWeight: 'bold',
+    textAlign: 'center',
     marginBottom: 25,
   },
 
   section: {
-    marginBottom: 30,
-    padding: 15,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 10,
+    backgroundColor: '#ffffff',
+    borderRadius: 15,
+    padding: 20,
+    marginBottom: 25,
+    elevation: 3,
   },
 
   sectionTitle: {
     fontSize: 22,
     fontWeight: 'bold',
-    marginBottom: 5,
-  },
-
-  description: {
     marginBottom: 15,
   },
 
   input: {
     borderWidth: 1,
-    borderColor: '#999',
+    borderColor: '#cccccc',
+    borderRadius: 10,
     padding: 12,
-    borderRadius: 8,
-    marginBottom: 12,
+    marginBottom: 10,
+    backgroundColor: '#ffffff',
+    fontSize: 16,
   },
 
   button: {
-    backgroundColor: '#222',
-    padding: 15,
-    borderRadius: 8,
+    backgroundColor: '#007bff',
+    padding: 14,
+    borderRadius: 10,
     alignItems: 'center',
+    marginBottom: 15,
   },
 
   buttonText: {
-    color: '#fff',
-    fontSize: 16,
+    color: '#ffffff',
     fontWeight: 'bold',
   },
 
-  subtitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginTop: 20,
-    marginBottom: 10,
-  },
-
-  product: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#ddd',
+  card: {
+    backgroundColor: '#f8f8f8',
+    borderRadius: 10,
     padding: 15,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#dddddd',
+  },
+
+  cardInfo: {
     marginBottom: 10,
-    borderRadius: 8,
   },
 
   productName: {
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: 'bold',
+  },
+
+  productQuantity: {
+    fontSize: 15,
+    color: '#555555',
+    marginTop: 4,
   },
 
   actions: {
-    gap: 8,
+    flexDirection: 'row',
+    gap: 10,
   },
 
-  edit: {
-    fontWeight: 'bold',
+  editButton: {
+    backgroundColor: '#28a745',
+    padding: 10,
+    borderRadius: 8,
+    flex: 1,
+    alignItems: 'center',
   },
 
-  delete: {
-    fontWeight: 'bold',
+  deleteButton: {
+    backgroundColor: '#dc3545',
+    padding: 10,
+    borderRadius: 8,
+    flex: 1,
+    alignItems: 'center',
   },
-
 });
